@@ -1,2 +1,1 @@
-# odoo_apps_tests
-Unit tests for modules in odoo_apps
+Tests for the Odoo modules in [this](https://github.com/polimex/odoo_apps) repository.
