@@ -1,7 +1,7 @@
 from odoo import api, exceptions
 from odoo.tests import common
 from .common import create_webstacks, create_acc_grs_cnt, create_employees, create_contacts, create_card, \
-    create_departments, card_door_rels_search
+    create_departments, card_door_rels_search, get_ws_doors
 from random import randint
 from psycopg2 import IntegrityError
 
@@ -25,10 +25,6 @@ def create_unique_cards(env: api.Environment, owners: list = None):
         cards += create_card(env, new_number, owner)
 
     return cards
-
-
-def get_ws_doors(webstacks):
-    return webstacks.mapped('controllers').mapped('door_ids')
 
 
 class CardTests(common.SavepointCase):

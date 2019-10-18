@@ -251,3 +251,7 @@ def card_door_rels_search(env: Environment, card: models.Model, door: models.Mod
     if ts is not None:
         search_params.append( ('time_schedule_id', '=', ts.id) )
     return rel_env.search(search_params)
+
+
+def get_ws_doors(webstacks):
+    return webstacks.mapped('controllers').mapped('door_ids')
