@@ -4,7 +4,7 @@ from .common import create_webstacks, create_acc_grs_cnt, create_contacts, creat
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 from queue import Queue
-from functools import partial, reduce
+from functools import partial
 
 import json
 
@@ -158,7 +158,24 @@ class WebstackEmulationHandler(BaseHTTPRequestHandler):
         buff = self.rfile.read(int(self.headers['content-length'])).decode()
         self._q.put(buff)
         self.send_response(200)
-        self.end_headers()
+
+        if self.path == '/sdk/cmd.json':
+            js = json.loads(buff)
+            response = {
+                'convertor': 423152,
+                'response': {
+                    'id': js['cmd']['id'],
+                    'c': js['cmd']['c'],
+                    'e': 0,
+                    'd': '',
+                }
+            }
+            response = json.dumps(response).encode()
+            self.send_header('content-length', len(response))
+            self.end_headers()
+            self.wfile.write(response)
+        else:
+            self.end_headers()
 
 
 class HttpServerThread(Thread):
@@ -202,8 +219,8 @@ class WebstackTests(common.SavepointCase):
             self._ws.action_set_webstack_settings()
         except exceptions.ValidationError:
             self.fail(msg="action_set_webstack_settings failed when it shouldn't have")
-
-        self.stop_test_webstack_server()
+        finally:
+            self.stop_test_webstack_server()
 
         self.assertEqual(self._q.qsize(), 2)
 
@@ -212,7 +229,7 @@ class WebstackTests(common.SavepointCase):
         try:
             js_uart_conf = json.loads(msg)
         except json.decoder.JSONDecodeError as e:
-            self.fail('Could not load js_uart_conf, even though we should have been able to. Error: ' + e.msg)
+            self.fail('Could not load js_uart_conf even though we should have been able to. Error: ' + e.msg)
 
         self.assertEqual(type(js_uart_conf), type([]))
         self.assertEqual(len(js_uart_conf), 2)
@@ -291,8 +308,8 @@ class WebstackTests(common.SavepointCase):
             self._ws.action_check_if_ws_available()
         except exceptions.ValidationError:
             self.fail(msg="action_check_if_ws_available failed when it shouldn't have")
-
-        self.stop_test_webstack_server()
+        finally:
+            self.stop_test_webstack_server()
 
         self.assertEqual(self._q.qsize(), 0)
 
@@ -480,5 +497,150 @@ class DoorTests(common.SavepointCase):
         cards = door.get_potential_cards()
         self.assertEqual(len(cards), 0)
 
-    def test_open_close_door(self):
-        pass
+    def test_create_door_out_cmd(self):
+        cmd_env = self.env['hr.rfid.command']
+        door = self._doors[0]
+        door.controller_id.webstack_id.behind_nat = True
+
+        cmd_env.search([]).unlink()
+
+        out = 1
+        time = 5
+        door.create_door_out_cmd(out, time)
+
+        c = cmd_env.search([])
+        self.assertEqual(len(c), 1)
+        self.assertEqual(c.webstack_id, self._ws[0])
+        self.assertEqual(c.controller_id, self._controllers[0])
+        self.assertEqual(c.cmd, 'DB')
+        self.assertEqual(c.cmd_data, '%02d%02d%02d' % (door.number, out, time))
+
+        cmd_env.search([]).unlink()
+
+        out = 0
+        time = 15
+        door.create_door_out_cmd(out, time)
+
+        c = cmd_env.search([])
+        self.assertEqual(len(c), 1)
+        self.assertEqual(c.webstack_id, self._ws[0])
+        self.assertEqual(c.controller_id, self._controllers[0])
+        self.assertEqual(c.cmd, 'DB')
+        self.assertEqual(c.cmd_data, '%02d%02d%02d' % (door.number, out, time))
+
+    def test_change_door_out(self):
+        door = self._doors[0]
+        door.controller_id.webstack_id.behind_nat = False
+
+        out = 1
+        time = 5
+
+        with self.assertRaises(exceptions.ValidationError):
+            door.change_door_out(out, time)
+
+        self.run_test_webstack_server()
+
+        try:
+            door.change_door_out(out, time)
+        except exceptions.ValidationError:
+            self.fail(msg="change_door_out failed when it shouldn't have")
+        finally:
+            self.stop_test_webstack_server()
+
+        self.assertEqual(self._q.qsize(), 1)
+
+        msg = self._q.get()
+
+        try:
+            js = json.loads(msg)
+        except json.decoder.JSONDecodeError as e:
+            self.fail('Could not load js even though we should have been able to. Error: ' + e.msg)
+
+        self.assertEqual(type(js), type({}))
+        self.assertEqual(len(js), 1)
+        self.assertIn('cmd', js)
+
+        cmd = js['cmd']
+
+        self.assertEqual(type(cmd), type({}))
+        self.assertEqual(len(cmd), 3)
+        self.assertIn('id', cmd)
+        self.assertIn('c', cmd)
+        self.assertIn('d', cmd)
+
+        self.assertEqual(cmd['id'], door.controller_id.ctrl_id)
+        self.assertEqual(cmd['c'], 'DB')
+        self.assertEqual(cmd['d'], '%02d%02d%02d' % (door.number, out, time))
+
+    def test_write_card_type(self):
+        rel_env = self.env['hr.rfid.card.door.rel']
+        door = self._doors[0]
+        card = self._cards[0]
+
+        rel = rel_env.search([ ('door_id', '=', door.id), ('card_id', '=', card.id) ])
+        self.assertEqual(len(rel), 1)
+
+        door.write({ 'card_type': self.env.ref('hr_rfid.hr_rfid_card_type_1').id })
+        rel = rel_env.search([ ('door_id', '=', door.id), ('card_id', '=', card.id) ])
+        self.assertEqual(len(rel), 0)
+
+        door.write({ 'card_type': self.env.ref('hr_rfid.hr_rfid_card_type_def').id })
+        rel = rel_env.search([ ('door_id', '=', door.id), ('card_id', '=', card.id) ])
+        self.assertEqual(len(rel), 1)
+
+
+class ReaderTests(common.SavepointCase):
+    @classmethod
+    def setUpClass(cls):
+        super(ReaderTests, cls).setUpClass()
+        cls._ws = create_webstacks(cls.env, 1, [2])
+        cls._controllers = cls._ws.controllers
+        cls._doors = get_ws_doors(cls._ws)
+        cls._acc_grs = create_acc_grs_cnt(cls.env, 2)
+        cls._contacts = create_contacts(cls.env, [ 'Josh', 'Uncool Josh', 'Reaver Spolarity' ])
+
+        cls._cards = cls.env['hr.rfid.card']
+        cls._cards += create_card(cls.env, '0000000001', cls._contacts[0])
+        cls._cards += create_card(cls.env, '0000000002', cls._contacts[1])
+        cls._cards += create_card(cls.env, '0000000003', cls._contacts[1])
+
+        cls._contacts[0].add_acc_gr(cls._acc_grs[0])
+        cls._contacts[1].add_acc_gr(cls._acc_grs[0])
+        cls._contacts[1].add_acc_gr(cls._acc_grs[1])
+        cls._contacts[2].add_acc_gr(cls._acc_grs[0])
+        cls._contacts[2].add_acc_gr(cls._acc_grs[1])
+
+        cls._def_ts = cls.env.ref('hr_rfid.hr_rfid_time_schedule_0')
+
+        cls._acc_grs[0].add_doors(cls._doors[0], cls._def_ts)
+        cls._acc_grs[1].add_doors(cls._doors[1], cls._def_ts)
+
+    def test_write_mode(self):
+        ctrl = self._controllers[0]
+        door = ctrl.door_ids[0]
+        reader = door.reader_ids[0]
+        cmd_env = self.env['hr.rfid.command']
+
+        cmd_env.search([]).unlink()
+
+        reader.write({ 'mode': reader.mode })
+        c = cmd_env.search([])
+        self.assertFalse(c.exists())
+
+        if reader.mode == '01':
+            mode = '02'
+        else:
+            mode = '01'
+
+        reader.write({ 'mode': mode })
+        c = cmd_env.search([])
+
+        expected_data = ''
+        for reader in ctrl.reader_ids:
+            expected_data += str(reader.mode) + '0100'
+
+        self.assertEqual(len(c), 1)
+        self.assertEqual(c.webstack_id, self._ws[0])
+        self.assertEqual(c.controller_id, self._controllers[0])
+        self.assertEqual(c.cmd, 'D6')
+        self.assertEqual(c.cmd_data, expected_data)
