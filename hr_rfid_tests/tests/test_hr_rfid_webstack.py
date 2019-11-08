@@ -1,11 +1,12 @@
+from odoo import exceptions, fields
 from odoo.tests import common
-from odoo import exceptions
 from .common import create_webstacks, create_acc_grs_cnt, create_contacts, create_card, get_ws_doors
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 from queue import Queue
 from functools import partial
 
+import datetime
 import json
 
 
@@ -192,6 +193,33 @@ class WebstackTests(common.SavepointCase):
     def setUpClass(cls):
         super(WebstackTests, cls).setUpClass()
         cls._ws = create_webstacks(cls.env, 1, [2])
+        cls._controllers = cls._ws.controllers
+        cls._doors = get_ws_doors(cls._ws)
+        cls._acc_grs = create_acc_grs_cnt(cls.env, 2)
+        cls._contacts = create_contacts(cls.env, [ 'Josh', 'Uncool Josh', 'Reaver Spolarity' ])
+
+        cls._cards = cls.env['hr.rfid.card']
+        cls._cards += create_card(cls.env, '0000000001', cls._contacts[0])
+        cls._cards += create_card(cls.env, '0000000002', cls._contacts[1])
+        cls._cards += create_card(cls.env, '0000000003', cls._contacts[1])
+
+        cls._contacts[0].add_acc_gr(cls._acc_grs[0])
+        cls._contacts[1].add_acc_gr(cls._acc_grs[0])
+        cls._contacts[1].add_acc_gr(cls._acc_grs[1])
+        cls._contacts[2].add_acc_gr(cls._acc_grs[0])
+        cls._contacts[2].add_acc_gr(cls._acc_grs[1])
+
+        cls._def_ts = cls.env.ref('hr_rfid.hr_rfid_time_schedule_0')
+
+        cls._acc_grs[0].add_doors(cls._doors[0], cls._def_ts)
+        cls._acc_grs[1].add_doors(cls._doors[1], cls._def_ts)
+
+        save_comms = cls.env['ir.config_parameter'].search([
+            ('key', '=', 'hr_rfid.save_webstack_communications')
+        ])
+        save_comms.value = 'True'
+
+        cls._post = { 'event': { 'date': '11.11.11', 'time': '11:11:11' } }
 
     def run_test_webstack_server(self):
         queue = Queue()
@@ -324,6 +352,288 @@ class WebstackTests(common.SavepointCase):
         self.assertFalse(self._ws.ws_active)
         self._ws.action_set_active()
         self.assertTrue(self._ws.ws_active)
+
+    def test_deal_with_event(self):
+        sys_ev_env = self.env['hr.rfid.event.system']
+        ws = self._ws
+        post = {}
+        last_ip = '1.3.3.7'
+        expected_ret = { 'status': 400 }
+
+        ws.ws_active = False
+        ret = ws.deal_with_event(post, last_ip)
+        self.assertEqual(ret, expected_ret)
+        self.assertEqual(ws.last_ip, last_ip)
+
+        ws.ws_active = True
+        sys_ev_env.search([]).unlink()
+
+        ret = ws.deal_with_event(post, last_ip)
+        self.assertEqual(ret, expected_ret)
+        ev = sys_ev_env.search([])
+        self.assertTrue(ev)
+        self.assertEqual(ev.webstack_id, ws)
+
+    def test_check_for_unsent_cmd(self):
+        ws = self._ws[0]
+        ctrl = ws.controllers[0]
+        cmd_env = self.env['hr.rfid.command']
+
+        cmd_env.search([]).unlink()
+
+        expected_ret = { 'status': 200 }
+        ret = ws.check_for_unsent_cmd()
+        self.assertEqual(ret, expected_ret)
+
+        cmd_env.search([]).unlink()
+        cmd = cmd_env.create({
+            'webstack_id': ws.id,
+            'controller_id': ctrl.id,
+            'cmd': 'F0',
+        })
+        ret = ws.check_for_unsent_cmd()
+        cmd.status = 'Wait'
+        expected_ret = ws.send_command(cmd)
+        self.assertEqual(ret, expected_ret)
+
+        cmd_env.create({
+            'webstack_id': ws.id,
+            'controller_id': ctrl.id,
+            'cmd': 'F6',
+        })
+        ret = ws.check_for_unsent_cmd()
+        expected_ret = ws.send_command(cmd)
+        self.assertEqual(ret, expected_ret)
+
+    def test_retry_command(self):
+        ws = self._ws[0]
+        ctrl = self._ws.controllers[0]
+        cmd_env = self.env['hr.rfid.command']
+
+        cmd_env.search([]).unlink()
+        cmd = cmd_env.create({
+            'webstack_id': ws.id,
+            'controller_id': ctrl.id,
+            'cmd': 'F0',
+        })
+        expected_ret = ws.send_command(cmd)
+        ret = ws.retry_command(cmd)
+        self.assertEqual(ret, expected_ret)
+        self.assertTrue(cmd)
+        self.assertEqual(cmd.status, 'Process')
+        self.assertEqual(cmd.retries, 1)
+
+        cmd.retries = 5
+        expected_ret = ws.check_for_unsent_cmd()
+        ret = ws.retry_command(cmd)
+        self.assertEqual(ret, expected_ret)
+        self.assertTrue(cmd)
+        self.assertEqual(cmd.status, 'Failure')
+        self.assertEqual(cmd.retries, 5)
+
+    def test_send_command(self):
+        ws = self._ws[0]
+        ctrl = self._ws.controllers[0]
+        cmd_env = self.env['hr.rfid.command']
+
+        cmd_env.search([]).unlink()
+        cmd = cmd_env.create({
+            'webstack_id': ws.id,
+            'controller_id': ctrl.id,
+            'cmd': 'F0',
+            'cmd_data': '01',
+        })
+        expected_ret = {
+            'status': 200,
+            'cmd': {
+                'id': ctrl.ctrl_id,
+                'c': 'F0',
+                'd': '01',
+            }
+        }
+
+        ret = ws.send_command(cmd, 200)
+        self.assertEqual(ret, expected_ret)
+        self.assertEqual(cmd.request, json.dumps(expected_ret))
+
+        cmd_env.search([]).unlink()
+        cmd = cmd_env.create({
+            'webstack_id': ws.id,
+            'controller_id': ctrl.id,
+            'cmd': 'D1',
+            'card_number': '0000000001',
+            'pin_code': '1111',
+            'ts_code': '00000000',
+            'rights_data': 3,
+            'rights_mask': 3,
+        })
+        expected_ret = {
+            'status': 200,
+            'cmd': {
+                'id': ctrl.ctrl_id,
+                'c': 'D1',
+                'd': '0000000000000000000101010101000000000303',
+            }
+        }
+
+        ret = ws.send_command(cmd, 200)
+        self.assertEqual(ret, expected_ret)
+        self.assertEqual(cmd.request, json.dumps(expected_ret))
+
+        cmd_env.search([]).unlink()
+        cmd = cmd_env.create({
+            'webstack_id': ws.id,
+            'controller_id': ctrl.id,
+            'cmd': 'D7',
+        })
+        expected_ret = {
+            'status': 200,
+            'cmd': {
+                'id': ctrl.ctrl_id,
+                'c': 'D7',
+                'd': datetime.datetime.now().strftime('%S%M%H0%u%d%m%y'),
+            }
+        }
+
+        ret = ws.send_command(cmd, 200)
+        self.assertEqual(ret, expected_ret)
+        self.assertEqual(cmd.request, json.dumps(expected_ret))
+
+    def test_parse_heartbeat(self):
+        ws = self._ws
+        post = { 'FW': 9.99 }
+        ws.parse_heartbeat(post)
+        self.assertEqual(ws.version, str(post['FW']))
+
+    def test_parse_event(self):
+        # TODO Implement
+        pass
+
+    def test_parse_response(self):
+        # TODO Implement
+        pass
+
+    def test_parse_response_f0(self):
+        # TODO Implement
+        pass
+
+    def test_parse_response_f6(self):
+        # TODO Implement
+        pass
+
+    def test_parse_response_f9(self):
+        # TODO Implement
+        pass
+
+    def test_report_sys_ev(self):
+        ws = self._ws[0]
+        sys_ev_env = self.env['hr.rfid.event.system']
+        ctrl = self._controllers[0]
+        description = 'hello world!!11!!11one!111eleven!'
+        post = self._post
+
+        post['event']['event_n'] = '4'
+        sys_ev_env.search([]).unlink()
+
+        ws.report_sys_ev(post, description, ctrl)
+        ev = sys_ev_env.search([])
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev.webstack_id, ws)
+        self.assertEqual(ev.timestamp, ws.get_ws_time_str(post))
+        self.assertEqual(ev.error_description, description)
+        self.assertEqual(ev.event_action, str(post['event']['event_n']))
+        self.assertEqual(ev.input_js, json.dumps(post))
+        self.assertEqual(ev.controller_id, ctrl)
+
+        sys_ev_env.search([]).unlink()
+
+        ws.report_sys_ev(post, description)
+        ev = sys_ev_env.search([])
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev.webstack_id, ws)
+        self.assertEqual(ev.timestamp, ws.get_ws_time_str(post))
+        self.assertEqual(ev.error_description, description)
+        self.assertEqual(ev.event_action, str(post['event']['event_n']))
+        self.assertEqual(ev.input_js, json.dumps(post))
+        self.assertFalse(ev.controller_id)
+
+    def test_respond_to_ev_64(self):
+        ws = self._ws[0]
+        open_door = False
+        ctrl = ws.controllers[0]
+        reader = ctrl.reader_ids[0]
+        card = self._cards[0]
+        cmd_env = self.env['hr.rfid.command']
+        ev_env = self.env['hr.rfid.event.user']
+        post = self._post
+
+        cmd_env.search([]).unlink()
+        ev_env.search([]).unlink()
+
+        ret = ws.respond_to_ev_64(post, open_door, ctrl, reader, card)
+
+        cmd = cmd_env.search([])
+        ev = ev_env.search([])
+
+        self.assertEqual(len(cmd), 1)
+        self.assertEqual(len(ev), 1)
+
+        self.assertEqual(cmd.webstack_id, ws)
+        self.assertEqual(cmd.controller_id, ctrl)
+        self.assertEqual(cmd.cmd, 'DB')
+        self.assertEqual(cmd.cmd_data, '40%02X00' % (open_door + 4*(reader.number - 1)))
+
+        self.assertEqual(ev.ctrl_addr, ctrl.ctrl_id)
+        self.assertEqual(ev.door_id, reader.door_id)
+        self.assertEqual(ev.reader_id, reader)
+        self.assertEqual(ev.card_id, card)
+        self.assertEqual(ev.event_time, ws.get_ws_time_str())
+        self.assertEqual(ev.event_action, '64')
+
+        expected_ret = ws.send_command(cmd, 200)
+        self.assertEqual(ret, expected_ret)
+
+    def test_log_cmd_error(self):
+        ws = self._ws[0]
+        post = {'hello': 'world', 'event': { 'event_n': 4 }}
+        description = 'just a test'
+        command = self.env['hr.rfid.command'].create({
+            'webstack_id': ws.id,
+            'controller_id': ws.controllers[0].id,
+            'cmd': 'F0',
+        })
+        error = '2'  # I2C Error
+        status_code = 200
+        sys_ev_env = self.env['hr.rfid.event.system']
+
+        sys_ev_env.search([]).unlink()
+
+        ws.log_cmd_error(post, description, command, error, status_code)
+
+        sys_ev = sys_ev_env.search([])
+        self.assertEqual(len(sys_ev), 1)
+        self.assertTrue(command)
+        self.assertEqual(command.status, 'Failure')
+        self.assertEqual(command.error, error)
+        self.assertEqual(command.response, json.dumps(post))
+        self.assertEqual(sys_ev.error_description, description)
+
+    def test_get_ws_time(self):
+        ws = self._ws[0]
+        date_str = '11.11.11'
+        time_str = '11:11:11'
+        post = { 'event': { 'date': date_str, 'time': time_str } }
+
+        expected_time = datetime.datetime.strptime(date_str + ' ' + time_str, '%m.%d.%y %H:%M:%S')
+        expected_time += datetime.timedelta(hours=3)
+        expected_str = expected_time.strftime('%m.%d.%y %H:%M:%S')
+
+        ws.tz = 'Etc/GMT+3'
+        time = ws.get_ws_time(post)
+        time_str = ws.get_ws_time_str(post)
+
+        self.assertEqual(time, expected_time)
+        self.assertEqual(time_str, expected_str)
 
 
 class ControllerTests(common.SavepointCase):
