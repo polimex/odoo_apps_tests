@@ -1,6 +1,7 @@
 from odoo.tests import common
-from odoo import exceptions
-from .common import create_webstacks, create_acc_grs_cnt, create_contacts, create_card, get_ws_doors
+from odoo import exceptions, fields
+from .common import create_webstacks, create_acc_grs_cnt, create_contacts, create_card, \
+    get_ws_doors, create_employees, create_departments
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 from queue import Queue
@@ -588,6 +589,34 @@ class DoorTests(common.SavepointCase):
         rel = rel_env.search([ ('door_id', '=', door.id), ('card_id', '=', card.id) ])
         self.assertEqual(len(rel), 1)
 
+    def test_write_apb_mode(self):
+        door = self._doors[0]
+        cmd_env = self.env['hr.rfid.command']
+
+        door.apb_mode = False
+        cmd_env.search([]).unlink()
+
+        self.assertFalse(door.apb_mode)
+        door.write({ 'apb_mode': True })
+
+        self.assertTrue(door.apb_mode)
+        cmd = cmd_env.search([])
+
+        self.assertEqual(len(cmd), 1)
+        self.assertEqual(cmd.webstack_id, self._ws[0])
+        self.assertEqual(cmd.controller_id, self._controllers[0])
+        self.assertEqual(cmd.cmd, 'DE')
+        self.assertEqual(cmd.cmd_data, '%02d' % door.number)
+
+        door.write({ 'apb_mode': False })
+
+        self.assertTrue(cmd.exists())
+        self.assertEqual(cmd, cmd_env.search([]))
+        self.assertEqual(cmd.webstack_id, self._ws[0])
+        self.assertEqual(cmd.controller_id, self._controllers[0])
+        self.assertEqual(cmd.cmd, 'DE')
+        self.assertEqual(cmd.cmd_data, '00')
+
 
 class ReaderTests(common.SavepointCase):
     @classmethod
@@ -644,3 +673,222 @@ class ReaderTests(common.SavepointCase):
         self.assertEqual(c.controller_id, self._controllers[0])
         self.assertEqual(c.cmd, 'D6')
         self.assertEqual(c.cmd_data, expected_data)
+
+
+class UserEventTests(common.SavepointCase):
+    @classmethod
+    def setUpClass(cls):
+        super(UserEventTests, cls).setUpClass()
+        cls._ws = create_webstacks(cls.env, webstacks=1, controllers=[2, 2, 0x22, 1])
+        cls._doors = get_ws_doors(cls._ws)
+        cls._acc_grs = create_acc_grs_cnt(cls.env, 4)
+        cls._departments = create_departments(cls.env, ['Upstairs Office', 'Downstairs Office'])
+
+        cls._employees = create_employees(cls.env,
+                                          ['Max', 'Cooler Max', 'Jacob', 'Andrej'],
+                                          [cls._departments[0], cls._departments[1]])
+        cls._contacts = create_contacts(cls.env, ['Greg', 'Cooler Greg', 'Richard'])
+
+        cls._departments[0].hr_rfid_allowed_access_groups = cls._acc_grs[0] + cls._acc_grs[1]
+        cls._departments[1].hr_rfid_allowed_access_groups = cls._acc_grs[1] + cls._acc_grs[2] + cls._acc_grs[3]
+
+        cls._employees[0].add_acc_gr(cls._acc_grs[0])
+        cls._employees[1].add_acc_gr(cls._acc_grs[1])
+        cls._employees[3].add_acc_gr(cls._acc_grs[3])
+
+        cls._contacts[0].add_acc_gr(cls._acc_grs[0])
+        cls._contacts[1].add_acc_gr(cls._acc_grs[1])
+        cls._contacts[2].add_acc_gr(cls._acc_grs[2])
+
+        cls._def_ts = cls.env.ref('hr_rfid.hr_rfid_time_schedule_0')
+        cls._other_ts = cls.env.ref('hr_rfid.hr_rfid_time_schedule_1')
+
+        cls._acc_grs[0].add_doors(cls._doors[0], cls._def_ts)
+        cls._acc_grs[1].add_doors(cls._doors[1], cls._def_ts)
+        cls._acc_grs[2].add_doors(cls._doors[2] + cls._doors[3], cls._def_ts)
+        cls._acc_grs[3].add_doors(cls._doors[4], cls._other_ts)
+
+    def test_create_one_reader_door(self):
+        ev_env = self.env['hr.rfid.event.user']
+        door = self._doors[0]
+        employee = self._employees[0]
+        contact = self._contacts[0]
+        zone = self.env['hr.rfid.zone'].create({ 'name': 'asd' })
+        zone.door_ids = door
+
+        self.assertEqual(len(door.reader_ids), 1)
+
+        ev_env.create({
+            'ctrl_addr': 1,
+            'employee_id': employee.id,
+            'door_id': door.id,
+            'reader_id': door.reader_ids[0].id,
+            'card_id': employee.hr_rfid_card_ids[0].id,
+            'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
+            'event_action': '1',
+        })
+        self.assertEqual(zone.employee_ids, employee)
+
+        ev_env.create({
+            'ctrl_addr': 1,
+            'contact_id': contact.id,
+            'door_id': door.id,
+            'reader_id': door.reader_ids[0].id,
+            'card_id': contact.hr_rfid_card_ids[0].id,
+            'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
+            'event_action': '1',
+        })
+        self.assertEqual(zone.contact_ids, contact)
+
+        ev_env.create({
+            'ctrl_addr': 1,
+            'employee_id': employee.id,
+            'door_id': door.id,
+            'reader_id': door.reader_ids[0].id,
+            'card_id': employee.hr_rfid_card_ids[0].id,
+            'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
+            'event_action': '1',
+        })
+        self.assertFalse(zone.employee_ids)
+
+        ev_env.create({
+            'ctrl_addr': 1,
+            'contact_id': contact.id,
+            'door_id': door.id,
+            'reader_id': door.reader_ids[0].id,
+            'card_id': contact.hr_rfid_card_ids[0].id,
+            'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
+            'event_action': '1',
+        })
+        self.assertFalse(zone.contact_ids)
+
+    def test_create_two_reader_door(self):
+        ev_env = self.env['hr.rfid.event.user']
+        door = self._ws[0].controllers[3].door_ids[0]
+        employee = self._employees[0]
+        zone = self.env['hr.rfid.zone'].create({ 'name': 'asd' })
+        zone.door_ids = door
+
+        self.assertEqual(len(door.reader_ids), 2)
+
+        in_reader  = door.reader_ids[0] if door.reader_ids[0].reader_type == '0' else door.reader_ids[1]
+        out_reader = door.reader_ids[0] if door.reader_ids[0].reader_type == '1' else door.reader_ids[1]
+
+        ev_env.create({
+            'ctrl_addr': 1,
+            'employee_id': employee.id,
+            'door_id': door.id,
+            'reader_id': in_reader.id,
+            'card_id': employee.hr_rfid_card_ids[0].id,
+            'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
+            'event_action': '1',
+        })
+        self.assertEqual(zone.employee_ids, employee)
+
+        ev_env.create({
+            'ctrl_addr': 1,
+            'employee_id': employee.id,
+            'door_id': door.id,
+            'reader_id': out_reader.id,
+            'card_id': employee.hr_rfid_card_ids[0].id,
+            'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
+            'event_action': '1',
+        })
+        self.assertFalse(zone.employee_ids)
+
+    def test_create_workcode_door(self):
+        ev_env = self.env['hr.rfid.event.user']
+        door = self._doors[0]
+        reader = door.reader_ids[0]
+        employee = self._employees[0]
+        zone = self.env['hr.rfid.zone'].create({ 'name': 'asd' })
+        wc_env = self.env['hr.rfid.workcode']
+        workcode_start = wc_env.create({ 'name': 'asd1', 'workcode': '1', 'user_action': 'start' })
+        workcode_break = wc_env.create({ 'name': 'asd2', 'workcode': '2', 'user_action': 'break' })
+        workcode_stop  = wc_env.create({ 'name': 'asd3', 'workcode': '3', 'user_action': 'stop'  })
+
+        zone.door_ids = door
+        reader.mode = '03'
+        self.assertEqual(len(door.reader_ids), 1)
+
+        def create_ev(wc):
+            return ev_env.create({
+                'ctrl_addr': 1,
+                'employee_id': employee.id,
+                'door_id': door.id,
+                'reader_id': reader.id,
+                'workcode_id': wc.id,
+                'card_id': employee.hr_rfid_card_ids[0].id,
+                'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
+                'event_action': '1',
+            })
+
+        create_ev(workcode_stop)
+        self.assertFalse(zone.employee_ids)
+
+        create_ev(workcode_start)
+        self.assertEqual(zone.employee_ids, employee)
+
+        create_ev(workcode_break)
+        self.assertFalse(zone.employee_ids)
+
+        create_ev(workcode_stop)
+        self.assertEqual(zone.employee_ids, employee)
+
+        create_ev(workcode_stop)
+        self.assertFalse(zone.employee_ids)
+
+
+class CommandTests(common.SavepointCase):
+    @classmethod
+    def setUpClass(cls):
+        super(CommandTests, cls).setUpClass()
+        cls._ws = create_webstacks(cls.env, webstacks=1, controllers=[2, 2, 0x22])
+        cls._doors = get_ws_doors(cls._ws)
+        cls._acc_grs = create_acc_grs_cnt(cls.env, 4)
+        cls._departments = create_departments(cls.env, ['Upstairs Office', 'Downstairs Office'])
+
+        cls._employees = create_employees(cls.env,
+                                          ['Max', 'Cooler Max', 'Jacob', 'Andrej'],
+                                          [cls._departments[0], cls._departments[1]])
+        cls._contacts = create_contacts(cls.env, ['Greg', 'Cooler Greg', 'Richard'])
+
+        cls._departments[0].hr_rfid_allowed_access_groups = cls._acc_grs[0] + cls._acc_grs[1]
+        cls._departments[1].hr_rfid_allowed_access_groups = cls._acc_grs[1] + cls._acc_grs[2] + cls._acc_grs[3]
+
+        cls._employees[0].add_acc_gr(cls._acc_grs[0])
+        cls._employees[1].add_acc_gr(cls._acc_grs[1])
+        cls._employees[3].add_acc_gr(cls._acc_grs[3])
+
+        cls._contacts[0].add_acc_gr(cls._acc_grs[0])
+        cls._contacts[1].add_acc_gr(cls._acc_grs[1])
+        cls._contacts[2].add_acc_gr(cls._acc_grs[2])
+
+        cls._def_ts = cls.env.ref('hr_rfid.hr_rfid_time_schedule_0')
+        cls._other_ts = cls.env.ref('hr_rfid.hr_rfid_time_schedule_1')
+
+        cls._acc_grs[0].add_doors(cls._doors[0], cls._def_ts)
+        cls._acc_grs[1].add_doors(cls._doors[1], cls._def_ts)
+        cls._acc_grs[2].add_doors(cls._doors[2] + cls._doors[3], cls._def_ts)
+        cls._acc_grs[3].add_doors(cls._doors[4], cls._other_ts)
+
+    def test_create_d1_cmd(self):
+        pass  # TODO Implement
+
+    def test_add_remove_card(self):
+        pass  # TODO Implement
+
+    def test_add_card(self):
+        pass  # TODO Implement
+
+    def test_remove_card(self):
+        pass  # TODO Implement
+
+    def test_change_apb_flag(self):
+        pass  # TODO Implement
+
+    def test_create(self):
+        pass  # TODO Implement
+
+    def test_write(self):
+        pass  # TODO Implement
