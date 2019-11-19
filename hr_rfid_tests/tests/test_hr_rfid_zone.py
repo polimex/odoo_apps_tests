@@ -8,7 +8,7 @@ class ZoneTests(common.SavepointCase):
     @classmethod
     def setUpClass(cls):
         super(ZoneTests, cls).setUpClass()
-        cls._ws = create_webstacks(cls.env, webstacks=1, controllers=[2, 2])
+        cls._ws = create_webstacks(cls.env, webstacks=1, controllers=[2, 1])
         cls._doors = get_ws_doors(cls._ws)
         cls._acc_grs = create_acc_grs_cnt(cls.env, 1)
 
@@ -93,3 +93,66 @@ class ZoneTests(common.SavepointCase):
         zone.person_left(contact, [])
         self.assertFalse(zone.contact_ids)
         self.assertFalse(zone.employee_ids)
+
+    def test_field_anti_pass_back(self):
+        contact = self._contacts[0]
+        zone = self._zone
+        cmd_env = self.env['hr.rfid.command']
+        ev_env = self.env['hr.rfid.event.user']
+
+        zone.anti_pass_back = True
+        self._doors.write({ 'apb_mode': True })
+
+        door = self._doors[0]
+        ev = ev_env.create([{
+            'ctrl_addr': 1,
+            'contact_id': contact.id,
+            'door_id': door.id,
+            'reader_id': door.reader_ids[0].id,
+            'card_id': contact.hr_rfid_card_ids[0].id,
+            'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
+            'event_action': '1',
+        }])
+
+        expected_data  = ''.join([ '%02d' % int(a) for a in contact.hr_rfid_card_ids[0].number ])
+        expected_data += ''.join([ '%02d' % int(a) for a in contact.hr_rfid_pin_code ])
+        expected_data += '00000000'
+
+        cmd_env.search([]).unlink()
+        zone.contact_ids = self.env['res.partner']
+
+        zone.person_went_through(ev)
+        cmds = cmd_env.search([])
+
+        self.assertEqual(len(cmds), 2)
+        cmd1 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[0] else cmds[1]
+        cmd2 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[1] else cmds[1]
+
+        self.assertEqual(cmd1.webstack_id, self._ws[0])
+        self.assertEqual(cmd1.controller_id, self._ws[0].controllers[0])
+        self.assertEqual(cmd1.cmd, 'D1')
+        self.assertEqual(cmd1.cmd_data, expected_data + '4040')
+
+        self.assertEqual(cmd2.webstack_id, self._ws[0])
+        self.assertEqual(cmd2.controller_id, self._ws[0].controllers[1])
+        self.assertEqual(cmd2.cmd, 'D1')
+        self.assertEqual(cmd2.cmd_data, expected_data + '2020')
+
+        cmds.unlink()
+
+        zone.person_went_through(ev)
+        cmds = cmd_env.search([])
+
+        self.assertEqual(len(cmds), 2)
+        cmd1 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[0] else cmds[1]
+        cmd2 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[1] else cmds[1]
+
+        self.assertEqual(cmd1.webstack_id, self._ws[0])
+        self.assertEqual(cmd1.controller_id, self._ws[0].controllers[0])
+        self.assertEqual(cmd1.cmd, 'D1')
+        self.assertEqual(cmd1.cmd_data, expected_data + '0040')
+
+        self.assertEqual(cmd2.webstack_id, self._ws[0])
+        self.assertEqual(cmd2.controller_id, self._ws[0].controllers[1])
+        self.assertEqual(cmd2.cmd, 'D1')
+        self.assertEqual(cmd2.cmd_data, expected_data + '0020')
