@@ -107,7 +107,7 @@ class ZoneTests(common.SavepointCase):
         self._doors.write({ 'apb_mode': True })
 
         door = self._doors[0]
-        ev = ev_env.create([{
+        ev = ev_env.create({
             'ctrl_addr': 1,
             'contact_id': contact.id,
             'door_id': door.id,
@@ -115,7 +115,7 @@ class ZoneTests(common.SavepointCase):
             'card_id': contact.hr_rfid_card_ids[0].id,
             'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
             'event_action': '1',
-        }])
+        })
 
         cmd_env.search([]).unlink()
         zone.contact_ids = self.env['res.partner']

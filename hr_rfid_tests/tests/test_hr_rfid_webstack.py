@@ -817,6 +817,7 @@ class UserEventTests(common.SavepointCase):
 
         def create_ev(wc):
             create_ev.second += 1
+            event_time = str(fields.datetime.now().strftime('%m.%d.%y %H:%M:' + ('%02d' % create_ev.second)))
             return ev_env.create({
                 'ctrl_addr': 1,
                 'employee_id': employee.id,
@@ -824,7 +825,7 @@ class UserEventTests(common.SavepointCase):
                 'reader_id': reader.id,
                 'workcode_id': wc.id,
                 'card_id': employee.hr_rfid_card_ids[0].id,
-                'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:' + ('%02d' % create_ev.second)),
+                'event_time': event_time,
                 'event_action': '1',
             })
         create_ev.second = 1

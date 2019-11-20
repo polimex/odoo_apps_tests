@@ -622,11 +622,11 @@ class CardDoorRelTests(common.SavepointCase):
         cmd_env = self.env['hr.rfid.command'].sudo()
         cmd_env.search([]).unlink()
 
-        rel = rel_env.create([{
+        rel = rel_env.create({
             'card_id': card.id,
             'door_id': door.id,
             'time_schedule_id': self._def_ts.id,
-        }])
+        })
 
         self.assertTrue(rel.exists())
         self.assertEqual(rel.card_id, card)

@@ -81,7 +81,7 @@ class ContactTests(common.SavepointCase):
             self.fail("rel.ensure_one() fails when it shouldn't.")
 
         self.assertEqual(rel.access_group_id, ac1)
-        self.assertEqual(rel.expiration, date_obj)
+        self.assertEqual(rel.expiration, str(date_obj))
 
         cont.remove_acc_gr(ac1)
         self.assertFalse(cont.hr_rfid_access_group_ids)
