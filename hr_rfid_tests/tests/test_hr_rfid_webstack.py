@@ -25,7 +25,7 @@ class WebstackEmulationHandler(BaseHTTPRequestHandler):
                 'status': 0,
                 'url': 'url.or.ip.com'
             },
-            'convertor': 449156,
+            'convertor': 404040,
             'currentIPFiltering': {
                 'IP1': '0.0.0.0',
                 'checkbox_Enable_IP1_filter': ''
@@ -692,6 +692,10 @@ class UserEventTests(common.SavepointCase):
         cls._departments[0].hr_rfid_allowed_access_groups = cls._acc_grs[0] + cls._acc_grs[1]
         cls._departments[1].hr_rfid_allowed_access_groups = cls._acc_grs[1] + cls._acc_grs[2] + cls._acc_grs[3]
 
+        cls._cards = cls.env['hr.rfid.card']
+        cls._cards += create_card(cls.env, '0000000001', cls._employees[0])
+        cls._cards += create_card(cls.env, '0000000002', cls._contacts[0])
+
         cls._employees[0].add_acc_gr(cls._acc_grs[0])
         cls._employees[1].add_acc_gr(cls._acc_grs[1])
         cls._employees[3].add_acc_gr(cls._acc_grs[3])
@@ -803,15 +807,16 @@ class UserEventTests(common.SavepointCase):
         employee = self._employees[0]
         zone = self.env['hr.rfid.zone'].create({ 'name': 'asd' })
         wc_env = self.env['hr.rfid.workcode']
-        workcode_start = wc_env.create({ 'name': 'asd1', 'workcode': '1', 'user_action': 'start' })
-        workcode_break = wc_env.create({ 'name': 'asd2', 'workcode': '2', 'user_action': 'break' })
-        workcode_stop  = wc_env.create({ 'name': 'asd3', 'workcode': '3', 'user_action': 'stop'  })
+        workcode_start = wc_env.create({ 'name': 'asd1', 'workcode': '0001', 'user_action': 'start' })
+        workcode_break = wc_env.create({ 'name': 'asd2', 'workcode': '0002', 'user_action': 'break' })
+        workcode_stop  = wc_env.create({ 'name': 'asd3', 'workcode': '0003', 'user_action': 'stop'  })
 
         zone.door_ids = door
         reader.mode = '03'
         self.assertEqual(len(door.reader_ids), 1)
 
         def create_ev(wc):
+            create_ev.second += 1
             return ev_env.create({
                 'ctrl_addr': 1,
                 'employee_id': employee.id,
@@ -819,9 +824,10 @@ class UserEventTests(common.SavepointCase):
                 'reader_id': reader.id,
                 'workcode_id': wc.id,
                 'card_id': employee.hr_rfid_card_ids[0].id,
-                'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:%S'),
+                'event_time': fields.datetime.now().strftime('%m.%d.%y %H:%M:' + ('%02d' % create_ev.second)),
                 'event_action': '1',
             })
+        create_ev.second = 1
 
         create_ev(workcode_stop)
         self.assertFalse(zone.employee_ids)

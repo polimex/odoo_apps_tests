@@ -23,6 +23,9 @@ class ZoneTests(common.SavepointCase):
         cls._contacts[1].add_acc_gr(cls._acc_grs[0])
         cls._contacts[2].add_acc_gr(cls._acc_grs[0])
 
+        cls._def_ts = cls.env.ref('hr_rfid.hr_rfid_time_schedule_0')
+        cls._other_ts = cls.env.ref('hr_rfid.hr_rfid_time_schedule_1')
+
         cls._acc_grs[0].add_doors(cls._doors[0], cls._def_ts)
 
         cls._zone = cls.env['hr.rfid.zone'].create({ 'name': 'asd' })
@@ -114,10 +117,6 @@ class ZoneTests(common.SavepointCase):
             'event_action': '1',
         }])
 
-        expected_data  = ''.join([ '%02d' % int(a) for a in contact.hr_rfid_card_ids[0].number ])
-        expected_data += ''.join([ '%02d' % int(a) for a in contact.hr_rfid_pin_code ])
-        expected_data += '00000000'
-
         cmd_env.search([]).unlink()
         zone.contact_ids = self.env['res.partner']
 
@@ -131,12 +130,20 @@ class ZoneTests(common.SavepointCase):
         self.assertEqual(cmd1.webstack_id, self._ws[0])
         self.assertEqual(cmd1.controller_id, self._ws[0].controllers[0])
         self.assertEqual(cmd1.cmd, 'D1')
-        self.assertEqual(cmd1.cmd_data, expected_data + '4040')
+        self.assertEqual(cmd1.card_number, contact.hr_rfid_card_ids[0].number)
+        self.assertEqual(cmd1.pin_code, '0000')
+        self.assertEqual(cmd1.ts_code, '00000000')
+        self.assertEqual(cmd1.rights_data, 0x20)
+        self.assertEqual(cmd1.rights_mask, 0x20)
 
         self.assertEqual(cmd2.webstack_id, self._ws[0])
         self.assertEqual(cmd2.controller_id, self._ws[0].controllers[1])
         self.assertEqual(cmd2.cmd, 'D1')
-        self.assertEqual(cmd2.cmd_data, expected_data + '2020')
+        self.assertEqual(cmd2.card_number, contact.hr_rfid_card_ids[0].number)
+        self.assertEqual(cmd2.pin_code, '0000')
+        self.assertEqual(cmd2.ts_code, '00000000')
+        self.assertEqual(cmd2.rights_data, 0x40)
+        self.assertEqual(cmd2.rights_mask, 0x40)
 
         cmds.unlink()
 
@@ -150,9 +157,17 @@ class ZoneTests(common.SavepointCase):
         self.assertEqual(cmd1.webstack_id, self._ws[0])
         self.assertEqual(cmd1.controller_id, self._ws[0].controllers[0])
         self.assertEqual(cmd1.cmd, 'D1')
-        self.assertEqual(cmd1.cmd_data, expected_data + '0040')
+        self.assertEqual(cmd1.card_number, contact.hr_rfid_card_ids[0].number)
+        self.assertEqual(cmd1.pin_code, '0000')
+        self.assertEqual(cmd1.ts_code, '00000000')
+        self.assertEqual(cmd1.rights_data, 0x00)
+        self.assertEqual(cmd1.rights_mask, 0x20)
 
         self.assertEqual(cmd2.webstack_id, self._ws[0])
         self.assertEqual(cmd2.controller_id, self._ws[0].controllers[1])
         self.assertEqual(cmd2.cmd, 'D1')
-        self.assertEqual(cmd2.cmd_data, expected_data + '0020')
+        self.assertEqual(cmd2.card_number, contact.hr_rfid_card_ids[0].number)
+        self.assertEqual(cmd2.pin_code, '0000')
+        self.assertEqual(cmd2.ts_code, '00000000')
+        self.assertEqual(cmd2.rights_data, 0x00)
+        self.assertEqual(cmd2.rights_mask, 0x40)

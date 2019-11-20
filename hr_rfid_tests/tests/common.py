@@ -1,4 +1,3 @@
-
 from odoo.api import Environment
 from odoo import models
 from random import randint
@@ -97,8 +96,8 @@ def create_webstacks(env: Environment, webstacks: int = 0, controllers: list = N
 
         if _mode == 1 or _mode == 3:
             _door = _create_door(_gen_door_name(1, _ctrl.id), 1, _ctrl.id)
-            _create_reader('R1', 1, '0', _ctrl.id, _door)
-            _create_reader('R2', 2, '1', _ctrl.id, _door)
+            _create_reader('R1', 1, '0', _ctrl.id, _door.id)
+            _create_reader('R2', 2, '1', _ctrl.id, _door.id)
         else:  # (_mode == 2 and readers_count == 2) or _mode == 4
             _door = _create_door(_gen_door_name(1, _ctrl.id), 1, _ctrl.id)
             _create_reader('R1', 1, '0', _ctrl.id, _door.id)
@@ -107,14 +106,14 @@ def create_webstacks(env: Environment, webstacks: int = 0, controllers: list = N
 
         if _mode == 3:
             _door = _create_door(_gen_door_name(2, _ctrl.id), 2, _ctrl.id)
-            _create_reader('R3', 3, '0', _ctrl.id, _door)
+            _create_reader('R3', 3, '0', _ctrl.id, _door.id)
             _door = _create_door(_gen_door_name(3, _ctrl.id), 3, _ctrl.id)
-            _create_reader('R4', 4, '0', _ctrl.id, _door)
+            _create_reader('R4', 4, '0', _ctrl.id, _door.id)
         elif _mode == 4:
             _door = _create_door(_gen_door_name(3, _ctrl.id), 3, _ctrl.id)
-            _create_reader('R3', 3, '0', _ctrl.id, _door)
+            _create_reader('R3', 3, '0', _ctrl.id, _door.id)
             _door = _create_door(_gen_door_name(4, _ctrl.id), 4, _ctrl.id)
-            _create_reader('R4', 4, '0', _ctrl.id, _door)
+            _create_reader('R4', 4, '0', _ctrl.id, _door.id)
 
     records = _create_wss()
     for ws in records:

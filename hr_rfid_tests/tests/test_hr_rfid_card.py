@@ -122,9 +122,9 @@ class CardTests(common.SavepointCase):
         self.assertFalse(card.card_ready())
 
     def test_create(self):
-        # Check if creating a card with a length different from 10 raises
-        with self.assertRaises(exceptions.ValidationError):
-            create_card(self.env, '123', self._employees[0])
+        # Check if creating a card with a length different from 10 adds leading zeroes
+        card = create_card(self.env, '123', self._employees[0])
+        self.assertEqual(card.number, '0000000123')
 
         # Check if creating a card with invalid symbols raises
         with self.assertRaises(exceptions.ValidationError):
