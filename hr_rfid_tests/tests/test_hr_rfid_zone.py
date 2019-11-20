@@ -8,7 +8,7 @@ class ZoneTests(common.SavepointCase):
     @classmethod
     def setUpClass(cls):
         super(ZoneTests, cls).setUpClass()
-        cls._ws = create_webstacks(cls.env, webstacks=1, controllers=[2, 1])
+        cls._ws = create_webstacks(cls.env, webstacks=1, controllers=[1, 1, 1])
         cls._doors = get_ws_doors(cls._ws)
         cls._acc_grs = create_acc_grs_cnt(cls.env, 1)
 
@@ -124,20 +124,20 @@ class ZoneTests(common.SavepointCase):
         cmds = cmd_env.search([])
 
         self.assertEqual(len(cmds), 2)
-        cmd1 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[0] else cmds[1]
-        cmd2 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[1] else cmds[1]
+        cmd1 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[1] else cmds[1]
+        cmd2 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[2] else cmds[1]
 
         self.assertEqual(cmd1.webstack_id, self._ws[0])
-        self.assertEqual(cmd1.controller_id, self._ws[0].controllers[0])
+        self.assertEqual(cmd1.controller_id, self._ws[0].controllers[1])
         self.assertEqual(cmd1.cmd, 'D1')
         self.assertEqual(cmd1.card_number, contact.hr_rfid_card_ids[0].number)
         self.assertEqual(cmd1.pin_code, '0000')
         self.assertEqual(cmd1.ts_code, '00000000')
-        self.assertEqual(cmd1.rights_data, 0x20)
-        self.assertEqual(cmd1.rights_mask, 0x20)
+        self.assertEqual(cmd1.rights_data, 0x40)
+        self.assertEqual(cmd1.rights_mask, 0x40)
 
         self.assertEqual(cmd2.webstack_id, self._ws[0])
-        self.assertEqual(cmd2.controller_id, self._ws[0].controllers[1])
+        self.assertEqual(cmd2.controller_id, self._ws[0].controllers[2])
         self.assertEqual(cmd2.cmd, 'D1')
         self.assertEqual(cmd2.card_number, contact.hr_rfid_card_ids[0].number)
         self.assertEqual(cmd2.pin_code, '0000')
@@ -151,20 +151,20 @@ class ZoneTests(common.SavepointCase):
         cmds = cmd_env.search([])
 
         self.assertEqual(len(cmds), 2)
-        cmd1 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[0] else cmds[1]
-        cmd2 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[1] else cmds[1]
+        cmd1 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[1] else cmds[1]
+        cmd2 = cmds[0] if cmds[0].controller_id == self._ws[0].controllers[2] else cmds[1]
 
         self.assertEqual(cmd1.webstack_id, self._ws[0])
-        self.assertEqual(cmd1.controller_id, self._ws[0].controllers[0])
+        self.assertEqual(cmd1.controller_id, self._ws[0].controllers[1])
         self.assertEqual(cmd1.cmd, 'D1')
         self.assertEqual(cmd1.card_number, contact.hr_rfid_card_ids[0].number)
         self.assertEqual(cmd1.pin_code, '0000')
         self.assertEqual(cmd1.ts_code, '00000000')
         self.assertEqual(cmd1.rights_data, 0x00)
-        self.assertEqual(cmd1.rights_mask, 0x20)
+        self.assertEqual(cmd1.rights_mask, 0x40)
 
         self.assertEqual(cmd2.webstack_id, self._ws[0])
-        self.assertEqual(cmd2.controller_id, self._ws[0].controllers[1])
+        self.assertEqual(cmd2.controller_id, self._ws[0].controllers[2])
         self.assertEqual(cmd2.cmd, 'D1')
         self.assertEqual(cmd2.card_number, contact.hr_rfid_card_ids[0].number)
         self.assertEqual(cmd2.pin_code, '0000')

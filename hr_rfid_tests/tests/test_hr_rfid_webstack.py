@@ -437,7 +437,7 @@ class DoorTests(common.SavepointCase):
     @classmethod
     def setUpClass(cls):
         super(DoorTests, cls).setUpClass()
-        cls._ws = create_webstacks(cls.env, 1, [2])
+        cls._ws = create_webstacks(cls.env, 1, [2, 1])
         cls._controllers = cls._ws.controllers
         cls._doors = get_ws_doors(cls._ws)
         cls._acc_grs = create_acc_grs_cnt(cls.env, 2)
@@ -596,15 +596,19 @@ class DoorTests(common.SavepointCase):
         door.apb_mode = False
         cmd_env.search([]).unlink()
 
-        self.assertFalse(door.apb_mode)
-        door.write({ 'apb_mode': True })
+        with self.assertRaises(exceptions.ValidationError):
+            door.write({ 'apb_mode': True })
 
+        door = self._doors[2]
+
+        door.apb_mode = False
+        door.write({ 'apb_mode': True })
         self.assertTrue(door.apb_mode)
         cmd = cmd_env.search([])
 
         self.assertEqual(len(cmd), 1)
-        self.assertEqual(cmd.webstack_id, self._ws[0])
-        self.assertEqual(cmd.controller_id, self._controllers[0])
+        self.assertEqual(cmd.webstack_id, door.controller_id.webstack_id)
+        self.assertEqual(cmd.controller_id, door.controller_id)
         self.assertEqual(cmd.cmd, 'DE')
         self.assertEqual(cmd.cmd_data, '%02d' % door.number)
 
@@ -612,8 +616,8 @@ class DoorTests(common.SavepointCase):
 
         self.assertTrue(cmd.exists())
         self.assertEqual(cmd, cmd_env.search([]))
-        self.assertEqual(cmd.webstack_id, self._ws[0])
-        self.assertEqual(cmd.controller_id, self._controllers[0])
+        self.assertEqual(cmd.webstack_id, door.controller_id.webstack_id)
+        self.assertEqual(cmd.controller_id, door.controller_id)
         self.assertEqual(cmd.cmd, 'DE')
         self.assertEqual(cmd.cmd_data, '00')
 
